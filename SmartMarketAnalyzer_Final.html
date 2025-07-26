@@ -1,0 +1,835 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Smart Market Analyzer</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js">
+function logAnalysis(pair, timeframe, direction, signal, result) {
+  const table = document.querySelector("#logs-table tbody");
+  const row = document.createElement("tr");
+  row.innerHTML = `
+    <td>${pair}</td>
+    <td>${timeframe}</td>
+    <td>${new Date().toLocaleString()}</td>
+    <td>${direction}</td>
+    <td>${signal}</td>
+    <td>${result}</td>
+  `;
+  table.appendChild(row);
+}
+
+
+// 🟡 إشارات الشموع اليابانية
+function detectCandlestickPatterns(closes, opens, highs, lows) {
+  let patterns = [];
+  const len = closes.length;
+  if (len < 2) return patterns;
+  const lastClose = closes[len - 1];
+  const lastOpen = opens[len - 1];
+  const lastHigh = highs[len - 1];
+  const lastLow = lows[len - 1];
+  const body = Math.abs(lastClose - lastOpen);
+  const candleSize = lastHigh - lastLow;
+  const upperWick = lastHigh - Math.max(lastClose, lastOpen);
+  const lowerWick = Math.min(lastClose, lastOpen) - lastLow;
+
+  if (body <= candleSize * 0.3 && lowerWick > body * 2) patterns.push("Hammer");
+  if (body <= candleSize * 0.3 && upperWick > body * 2) patterns.push("Shooting Star");
+  if (closes[len - 2] < opens[len - 2] && closes[len - 1] > opens[len - 1] && closes[len - 1] > opens[len - 2])
+    patterns.push("Bullish Engulfing");
+  if (closes[len - 2] > opens[len - 2] && closes[len - 1] < opens[len - 1] && closes[len - 1] < opens[len - 2])
+    patterns.push("Bearish Engulfing");
+
+  return patterns;
+}
+
+// 🟣 تحليل متعدد الفريمات الزمنية
+async function multiTimeframeAnalysis(pair) {
+  const timeframes = ["15m", "1h", "4h", "1d"];
+  let summary = [];
+  for (let tf of timeframes) {
+    const url = `https://api.binance.com/api/v3/klines?symbol=${pair}&interval=${tf}&limit=100`;
+    const response = await fetch(url);
+    const data = await response.json();
+    const closes = data.map(c => parseFloat(c[4]));
+    const highs = data.map(c => parseFloat(c[2]));
+    const lows = data.map(c => parseFloat(c[3]));
+    const opens = data.map(c => parseFloat(c[1]));
+    const direction = closes.at(-1) > closes.at(-2) ? "📈 Up" : closes.at(-1) < closes.at(-2) ? "📉 Down" : "➡️ Sideways";
+    const rsi = calculateRSI(closes).at(-1);
+    const macdData = calculateMACD(closes);
+    const macdSignal = macdData.macd.at(-1) > macdData.signal.at(-1) ? "✅ MACD Bullish" : "❌ MACD Bearish";
+    const candlePatterns = detectCandlestickPatterns(closes, opens, highs, lows).join(", ") || "No pattern";
+    summary.push(`<strong>${tf}</strong>: ${direction}, RSI: ${rsi.toFixed(1)}, ${macdSignal}, Candle: ${candlePatterns}`);
+  }
+  document.getElementById("result").innerHTML += `<hr><p><strong>🔁 Multi-Timeframe Analysis:</strong><br>${summary.join("<br>")}</p>`;
+}
+
+</script>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      background-color: #111;
+      color: #fff;
+      margin: 0;
+    }
+    .topbar {
+      background-color: #1a1a1a;
+      padding: 10px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .menu-btn {
+      background: none;
+      border: none;
+      font-size: 24px;
+      color: #fff;
+      cursor: pointer;
+    }
+    .sidebar {
+      width: 250px;
+      background-color: #1a1a1a;
+      height: 100vh;
+      padding: 20px;
+      box-shadow: -2px 0 10px rgba(0,0,0,0.5);
+      position: fixed;
+      top: 0;
+      right: -260px;
+      transition: right 0.3s ease;
+      z-index: 1000;
+    }
+    .sidebar.open {
+      right: 0;
+    }
+    .sidebar h3 {
+      color: #00bcd4;
+    }
+    .sidebar a {
+      display: block;
+      margin: 10px 0;
+      color: #ccc;
+      text-decoration: none;
+      cursor: pointer;
+    }
+    .sidebar a:hover {
+      color: #00bcd4;
+    }
+    .container {
+      padding: 20px;
+      overflow-y: auto;
+    }
+    .box {
+      max-width: 700px;
+      margin: auto;
+      background-color: #222;
+      padding: 20px;
+      border-radius: 12px;
+      box-shadow: 0 0 15px rgba(0, 255, 255, 0.3);
+    }
+    label {
+      display: block;
+      margin-top: 15px;
+    }
+    select, input, button {
+      width: 100%;
+      padding: 10px;
+      margin-top: 5px;
+      border-radius: 6px;
+      border: none;
+      background-color: #333;
+      color: white;
+    }
+    button {
+      background-color: #00bcd4;
+      margin-top: 20px;
+      cursor: pointer;
+    }
+    .result, .entry-time {
+      margin-top: 20px;
+      padding: 15px;
+      background-color: #333;
+      border-radius: 6px;
+    }
+    canvas {
+      margin-top: 30px;
+    }
+    .section {
+      display: none;
+    }
+    .active {
+      display: block;
+    }
+    .social-icons a {
+      display: inline-block;
+      margin: 10px;
+    }
+    .social-icons img {
+      width: 40px;
+      height: 40px;
+    }
+    .footer {
+      text-align: center;
+      padding: 10px;
+      color: #888;
+      font-size: 14px;
+    }
+  
+#analyzer {
+  background: url('57e59807-ad17-4201-a92c-bcf711b6aeae.jpg') no-repeat center center;
+  background-size: cover;
+}
+
+#news {
+  background: url('bitcoin بيتكوين.jpg') no-repeat center center;
+  background-size: cover;
+}
+
+#analyzer .box,
+#news .box {
+  background-color: rgba(0, 0, 0, 0.75);
+}
+
+</style>
+</head>
+<body>
+  <div class="topbar">
+    <h2 style="margin: 0 20px;">Smart Market Analyzer</h2>
+    <button class="menu-btn" onclick="toggleSidebar()">☰</button>
+  </div>
+  <div class="sidebar" id="sidebar">
+    <h3>Menu</h3>
+    <a onclick="showSection('about')">1. About Us</a>
+    <a onclick="showSection('contact')">2. Contact Us</a>
+    <a onclick="showSection('news')">3. Market News</a>
+    <a onclick="showSection('analyzer')">4. Analyzer</a>
+    <a onclick="showSection('logs')">5. Analysis Logs</a>
+  </div>
+  <div class="container">
+    <div id="about" class="section">
+      <div class="box">
+        <h2>About Us</h2>
+        <p>Welcome to Abduljbbar Market Analyzer, your trusted platform for understanding cryptocurrency and financial markets.</p>
+        <p>We offer precise technical analysis backed by live charts and trends to help you make smart investment decisions.</p>
+        <p>💡 Our goal is to simplify trading and bring technical analysis to everyone – beginners and pros alike.</p>
+        <p>Website managed by Abduljbbar Alqadasi – a researcher passionate about markets, sharing real insights and experience.</p>
+        <p>📊 Stay with us to get:</p>
+        <ul>
+          <li>Daily analysis of global currencies</li>
+          <li>Free trading tools</li>
+          <li>Smart indicators to read the market</li>
+        </ul>
+        <p>👥 Be part of an active trader community.</p>
+        <p>🚀 We commit to honest, updated, and accurate content – no hype, no false promises.</p>
+        <p>Thank you for trusting us 🙏 — Abduljbbar Team.</p>
+      </div>
+    </div>
+    <div id="contact" class="section">
+      <div class="box">
+        <h2>Contact Us</h2>
+        <div class="social-icons">
+          <a href="https://www.tiktok.com/@abduljbbar.alqdasi22" target="_blank">
+            <img src="https://cdn-icons-png.flaticon.com/512/3046/3046122.png" alt="TikTok">
+          </a>
+          <a href="https://youtube.com/@abduljbbar.alqdsi22" target="_blank">
+            <img src="https://cdn-icons-png.flaticon.com/512/1384/1384060.png" alt="YouTube">
+          </a>
+        </div>
+      </div>
+    </div>
+    <div id="news" class="section">
+      <div class="box">
+        <h2>📰 Market News</h2>
+        <a href="https://cryptopanic.com/" target="_blank"
+           data-news_feed="recent"
+           data-currencies="BTC,USDT"
+           data-font_family="sans"
+           data-font_size="12"
+           data-height="300"
+           data-posts_limit="6"
+           data-bg_color="#18244D"
+           data-text_color="#E5E913"
+           data-link_color="#F8F8F8"
+           data-header_bg_color="#0C123B"
+           data-header_text_color="#F0A108"
+           class="CryptoPanicWidget">
+          أحدث الأخبار
+        </a>
+        <script src="https://static.cryptopanic.com/static/js/widgets.min.js">
+function logAnalysis(pair, timeframe, direction, signal, result) {
+  const table = document.querySelector("#logs-table tbody");
+  const row = document.createElement("tr");
+  row.innerHTML = `
+    <td>${pair}</td>
+    <td>${timeframe}</td>
+    <td>${new Date().toLocaleString()}</td>
+    <td>${direction}</td>
+    <td>${signal}</td>
+    <td>${result}</td>
+  `;
+  table.appendChild(row);
+}
+
+
+// 🟡 إشارات الشموع اليابانية
+function detectCandlestickPatterns(closes, opens, highs, lows) {
+  let patterns = [];
+  const len = closes.length;
+  if (len < 2) return patterns;
+  const lastClose = closes[len - 1];
+  const lastOpen = opens[len - 1];
+  const lastHigh = highs[len - 1];
+  const lastLow = lows[len - 1];
+  const body = Math.abs(lastClose - lastOpen);
+  const candleSize = lastHigh - lastLow;
+  const upperWick = lastHigh - Math.max(lastClose, lastOpen);
+  const lowerWick = Math.min(lastClose, lastOpen) - lastLow;
+
+  if (body <= candleSize * 0.3 && lowerWick > body * 2) patterns.push("Hammer");
+  if (body <= candleSize * 0.3 && upperWick > body * 2) patterns.push("Shooting Star");
+  if (closes[len - 2] < opens[len - 2] && closes[len - 1] > opens[len - 1] && closes[len - 1] > opens[len - 2])
+    patterns.push("Bullish Engulfing");
+  if (closes[len - 2] > opens[len - 2] && closes[len - 1] < opens[len - 1] && closes[len - 1] < opens[len - 2])
+    patterns.push("Bearish Engulfing");
+
+  return patterns;
+}
+
+// 🟣 تحليل متعدد الفريمات الزمنية
+async function multiTimeframeAnalysis(pair) {
+  const timeframes = ["15m", "1h", "4h", "1d"];
+  let summary = [];
+  for (let tf of timeframes) {
+    const url = `https://api.binance.com/api/v3/klines?symbol=${pair}&interval=${tf}&limit=100`;
+    const response = await fetch(url);
+    const data = await response.json();
+    const closes = data.map(c => parseFloat(c[4]));
+    const highs = data.map(c => parseFloat(c[2]));
+    const lows = data.map(c => parseFloat(c[3]));
+    const opens = data.map(c => parseFloat(c[1]));
+    const direction = closes.at(-1) > closes.at(-2) ? "📈 Up" : closes.at(-1) < closes.at(-2) ? "📉 Down" : "➡️ Sideways";
+    const rsi = calculateRSI(closes).at(-1);
+    const macdData = calculateMACD(closes);
+    const macdSignal = macdData.macd.at(-1) > macdData.signal.at(-1) ? "✅ MACD Bullish" : "❌ MACD Bearish";
+    const candlePatterns = detectCandlestickPatterns(closes, opens, highs, lows).join(", ") || "No pattern";
+    summary.push(`<strong>${tf}</strong>: ${direction}, RSI: ${rsi.toFixed(1)}, ${macdSignal}, Candle: ${candlePatterns}`);
+  }
+  document.getElementById("result").innerHTML += `<hr><p><strong>🔁 Multi-Timeframe Analysis:</strong><br>${summary.join("<br>")}</p>`;
+}
+
+</script>
+      </div>
+    </div>
+    <div id="analyzer" class="section active">
+      <div class="box">
+        <h1>Analyzer</h1>
+        <label for="pair">Currency Pair (e.g. BTCUSDT):</label>
+        <select id="pair"></select>
+        <label for="timeframe">Timeframe:</label>
+        <select id="timeframe">
+          <option value="1m">1 Minute</option>
+          <option value="5m">5 Minutes</option>
+          <option value="15m">15 Minutes</option>
+          <option value="1h">1 Hour</option>
+          <option value="4h">4 Hours</option>
+          <option value="1d">1 Day</option>
+        </select>
+        <button onclick="analyzeMarket()">Analyze with AI</button>
+
+<label>
+  <input type="checkbox" id="multi-frame-toggle" checked>
+  ⏱️ Enable Multi-Timeframe Analysis
+</label>
+
+        <div class="result" id="result"></div>
+        <div class="entry-time" id="entry-time"></div>
+        <canvas id="chart"></canvas>
+      </div>
+    
+<div id="logs" class="section">
+  <div class="box">
+    <h2>📊 Analysis Logs</h2>
+    <table id="logs-table" style="width:100%;border-collapse:collapse;color:white;">
+      <thead>
+        <tr>
+          <th>Pair</th>
+          <th>Timeframe</th>
+          <th>Date</th>
+          <th>Direction</th>
+          <th>Signal</th>
+          <th>Result</th>
+        </tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+  </div>
+</div>
+
+  </div>
+  <div class="footer">Website by Abduljbbar Alqadasi</div>
+
+  <script>
+    function toggleSidebar() {
+      document.getElementById('sidebar').classList.toggle('open');
+    }
+    function showSection(id) {
+      document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
+      document.getElementById(id).classList.add('active');
+      document.getElementById('sidebar').classList.remove('open');
+    }
+
+    async function loadPairs() {
+      try {
+        const res = await fetch("https://api.binance.com/api/v3/exchangeInfo");
+        const data = await res.json();
+        const pairSelect = document.getElementById("pair");
+        pairSelect.innerHTML = "";
+        data.symbols.forEach(symbol => {
+          if (symbol.symbol.endsWith("USDT")) {
+            const option = document.createElement("option");
+            option.value = symbol.symbol;
+            option.text = symbol.symbol;
+            pairSelect.appendChild(option);
+          }
+        });
+      } catch (e) {
+        alert("Failed to load currency pairs from Binance.");
+      }
+    }
+
+    let chart;
+    
+    async function analyzeMarket() {
+      const pair = document.getElementById("pair").value;
+      const timeframe = document.getElementById("timeframe").value;
+      const resultDiv = document.getElementById("result");
+      const entryDiv = document.getElementById("entry-time");
+      try {
+        const url = `https://api.binance.com/api/v3/klines?symbol=${pair}&interval=${timeframe}&limit=100`;
+        const response = await fetch(url);
+        const data = await response.json();
+        const labels = data.map(c => new Date(c[0]).toLocaleTimeString());
+        const closes = data.map(c => parseFloat(c[4]));
+        const highs = data.map(c => parseFloat(c[2]));
+        const lows = data.map(c => parseFloat(c[3]));
+
+        const lastClose = closes[closes.length - 1];
+        const prevClose = closes[closes.length - 2];
+        const highest = Math.max(...highs.slice(-20));
+        const lowest = Math.min(...lows.slice(-20));
+
+        const direction = lastClose > prevClose ? "Uptrend" : (lastClose < prevClose ? "Downtrend" : "Sideways");
+        const signal = direction === "Uptrend" ? "📈 Buy (trend continuation)" :
+                       direction === "Downtrend" ? "📉 Sell (trend continuation)" : "⏸️ Wait (no clear signal)";
+
+        let entrySignal = "⏸️ Not recommended yet.";
+        if (direction === "Uptrend" && lastClose > highest * 0.98) {
+          entrySignal = "✅ Entry signal detected (bullish breakout)";
+        } else if (direction === "Downtrend" && lastClose < lowest * 1.02) {
+          entrySignal = "✅ Entry signal detected (bearish momentum)";
+        }
+
+        const stopLoss = direction === "Uptrend" ? lowest : highest;
+        const takeProfit = direction === "Uptrend" ? lastClose * 1.03 : lastClose * 0.97;
+        const entryTime = new Date().toLocaleTimeString();
+
+      // ADX
+      function calcADX(highs, lows, closes, period = 14) {
+        const plusDM = [], minusDM = [], tr = [], dx = [], adx = [];
+        for (let i = 1; i < highs.length; i++) {
+          const up = highs[i] - highs[i - 1], down = lows[i - 1] - lows[i];
+          plusDM.push(up > down && up > 0 ? up : 0);
+          minusDM.push(down > up && down > 0 ? down : 0);
+          const highLow = highs[i] - lows[i];
+          const highClose = Math.abs(highs[i] - closes[i - 1]);
+          const lowClose = Math.abs(lows[i] - closes[i - 1]);
+          tr.push(Math.max(highLow, highClose, lowClose));
+        }
+        let smoothTR = tr.slice(0, period).reduce((a, b) => a + b, 0);
+        let smoothPlus = plusDM.slice(0, period).reduce((a, b) => a + b, 0);
+        let smoothMinus = minusDM.slice(0, period).reduce((a, b) => a + b, 0);
+        for (let i = period; i < tr.length; i++) {
+          smoothTR = smoothTR - smoothTR / period + tr[i];
+          smoothPlus = smoothPlus - smoothPlus / period + plusDM[i];
+          smoothMinus = smoothMinus - smoothMinus / period + minusDM[i];
+          const plusDI = 100 * (smoothPlus / smoothTR);
+          const minusDI = 100 * (smoothMinus / smoothTR);
+          const dxVal = 100 * Math.abs(plusDI - minusDI) / (plusDI + minusDI);
+          dx.push(dxVal);
+          if (dx.length >= period) {
+            adx.push(dx.slice(-period).reduce((a, b) => a + b, 0) / period);
+          }
+        }
+        return adx;
+      }
+        if (document.getElementById('multi-frame-toggle')?.checked) await multiTimeframeAnalysis(pair);
+    resultDiv.innerHTML = `
+          <p><strong>Pair:</strong> ${pair}</p>
+          <p><strong>Timeframe:</strong> ${timeframe}</p>
+          <p><strong>Trend:</strong> ${direction}</p>
+          <p><strong>Signal:</strong> ${signal}</p>
+          <p><strong>Entry Suggestion:</strong> ${entrySignal}</p>
+          <p><strong>Support:</strong> ${lowest.toFixed(2)}</p>
+          <p><strong>Resistance:</strong> ${highest.toFixed(2)}</p>
+          <p><strong>Take Profit:</strong> ${takeProfit.toFixed(2)}</p>
+          <p><strong>Stop Loss:</strong> ${stopLoss.toFixed(2)}</p>
+        `;
+        entryDiv.innerHTML = entrySignal.includes("Entry signal") ? `<p style='color:#0f0;'>🚀 Entry Time: ${entryTime}</p>` : "";
+
+        if (chart) chart.destroy();
+        const ctx = document.getElementById('chart').getContext('2d');
+        chart = new Chart(ctx, {
+          type: 'line',
+          data: {
+            labels: labels,
+            datasets: [{
+              label: `${pair} Closing Prices`,
+              data: closes,
+              borderColor: '#00bcd4',
+              backgroundColor: 'rgba(0, 188, 212, 0.2)',
+              fill: true,
+              tension: 0.1
+            }]
+          },
+          options: {
+            scales: {
+              x: { display: true },
+              y: { display: true }
+            }
+          }
+        });
+      } catch (error) {
+        resultDiv.innerHTML = "<p style='color:red;'>⚠️ Failed to fetch data from Binance API.<br>Make sure you are running this file on a live server (e.g., Replit, Netlify, or localhost) and not directly from your PC file system.</p>";
+      }
+    }
+
+    loadPairs();
+  
+function logAnalysis(pair, timeframe, direction, signal, result) {
+  const table = document.querySelector("#logs-table tbody");
+  const row = document.createElement("tr");
+  row.innerHTML = `
+    <td>${pair}</td>
+    <td>${timeframe}</td>
+    <td>${new Date().toLocaleString()}</td>
+    <td>${direction}</td>
+    <td>${signal}</td>
+    <td>${result}</td>
+  `;
+  table.appendChild(row);
+}
+
+
+// 🟡 إشارات الشموع اليابانية
+function detectCandlestickPatterns(closes, opens, highs, lows) {
+  let patterns = [];
+  const len = closes.length;
+  if (len < 2) return patterns;
+  const lastClose = closes[len - 1];
+  const lastOpen = opens[len - 1];
+  const lastHigh = highs[len - 1];
+  const lastLow = lows[len - 1];
+  const body = Math.abs(lastClose - lastOpen);
+  const candleSize = lastHigh - lastLow;
+  const upperWick = lastHigh - Math.max(lastClose, lastOpen);
+  const lowerWick = Math.min(lastClose, lastOpen) - lastLow;
+
+  if (body <= candleSize * 0.3 && lowerWick > body * 2) patterns.push("Hammer");
+  if (body <= candleSize * 0.3 && upperWick > body * 2) patterns.push("Shooting Star");
+  if (closes[len - 2] < opens[len - 2] && closes[len - 1] > opens[len - 1] && closes[len - 1] > opens[len - 2])
+    patterns.push("Bullish Engulfing");
+  if (closes[len - 2] > opens[len - 2] && closes[len - 1] < opens[len - 1] && closes[len - 1] < opens[len - 2])
+    patterns.push("Bearish Engulfing");
+
+  return patterns;
+}
+
+// 🟣 تحليل متعدد الفريمات الزمنية
+async function multiTimeframeAnalysis(pair) {
+  const timeframes = ["15m", "1h", "4h", "1d"];
+  let summary = [];
+  for (let tf of timeframes) {
+    const url = `https://api.binance.com/api/v3/klines?symbol=${pair}&interval=${tf}&limit=100`;
+    const response = await fetch(url);
+    const data = await response.json();
+    const closes = data.map(c => parseFloat(c[4]));
+    const highs = data.map(c => parseFloat(c[2]));
+    const lows = data.map(c => parseFloat(c[3]));
+    const opens = data.map(c => parseFloat(c[1]));
+    const direction = closes.at(-1) > closes.at(-2) ? "📈 Up" : closes.at(-1) < closes.at(-2) ? "📉 Down" : "➡️ Sideways";
+    const rsi = calculateRSI(closes).at(-1);
+    const macdData = calculateMACD(closes);
+    const macdSignal = macdData.macd.at(-1) > macdData.signal.at(-1) ? "✅ MACD Bullish" : "❌ MACD Bearish";
+    const candlePatterns = detectCandlestickPatterns(closes, opens, highs, lows).join(", ") || "No pattern";
+    summary.push(`<strong>${tf}</strong>: ${direction}, RSI: ${rsi.toFixed(1)}, ${macdSignal}, Candle: ${candlePatterns}`);
+  }
+  document.getElementById("result").innerHTML += `<hr><p><strong>🔁 Multi-Timeframe Analysis:</strong><br>${summary.join("<br>")}</p>`;
+}
+
+</script>
+
+<script>
+// إعادة الوظائف الأساسية التي كانت مفقودة
+function toggleSidebar() {
+  document.getElementById('sidebar').classList.toggle('open');
+}
+function showSection(id) {
+  document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
+  document.getElementById(id).classList.add('active');
+  document.getElementById('sidebar').classList.remove('open');
+}
+async function loadPairs() {
+  try {
+    const res = await fetch("https://api.binance.com/api/v3/exchangeInfo");
+    const data = await res.json();
+    const pairSelect = document.getElementById("pair");
+    pairSelect.innerHTML = "";
+    data.symbols.forEach(symbol => {
+      if (symbol.symbol.endsWith("USDT")) {
+        const option = document.createElement("option");
+        option.value = symbol.symbol;
+        option.text = symbol.symbol;
+        pairSelect.appendChild(option);
+      }
+    });
+  } catch (e) {
+    alert("Failed to load currency pairs from Binance.");
+  }
+}
+
+// مؤشرات فنية
+function calculateSMA(data, period) {
+  let sma = [];
+  for (let i = 0; i < data.length; i++) {
+    if (i < period - 1) {
+      sma.push(null);
+    } else {
+      const slice = data.slice(i - period + 1, i + 1);
+      const sum = slice.reduce((acc, val) => acc + val, 0);
+      sma.push(sum / period);
+    }
+  }
+  return sma;
+}
+function calculateRSI(closes, period = 14) {
+  let gains = 0, losses = 0, rsi = [];
+  for (let i = 1; i <= period; i++) {
+    const change = closes[i] - closes[i - 1];
+    if (change >= 0) gains += change;
+    else losses -= change;
+  }
+  gains /= period;
+  losses /= period;
+  rsi[period] = 100 - (100 / (1 + gains / losses));
+  for (let i = period + 1; i < closes.length; i++) {
+    const change = closes[i] - closes[i - 1];
+    if (change >= 0) {
+      gains = (gains * (period - 1) + change) / period;
+      losses = (losses * (period - 1)) / period;
+    } else {
+      gains = (gains * (period - 1)) / period;
+      losses = (losses * (period - 1) - change) / period;
+    }
+    rsi[i] = 100 - (100 / (1 + gains / losses));
+  }
+  return rsi;
+}
+function calculateMACD(closes) {
+  const ema = (arr, period) => {
+    const k = 2 / (period + 1);
+    let emaArr = [arr[0]];
+    for (let i = 1; i < arr.length; i++) {
+      emaArr.push(arr[i] * k + emaArr[i - 1] * (1 - k));
+    }
+    return emaArr;
+  };
+  const ema12 = ema(closes, 12);
+  const ema26 = ema(closes, 26);
+  const macd = ema12.map((v, i) => v - ema26[i]);
+  const signal = ema(macd, 9);
+  return { macd, signal };
+}
+function calculateBollingerBands(closes, period = 20) {
+  let sma = calculateSMA(closes, period);
+  let stdDev = [];
+  for (let i = 0; i < closes.length; i++) {
+    if (i < period - 1) {
+      stdDev.push(null);
+    } else {
+      const slice = closes.slice(i - period + 1, i + 1);
+      const mean = sma[i];
+      const variance = slice.reduce((acc, val) => acc + Math.pow(val - mean, 2), 0) / period;
+      stdDev.push(Math.sqrt(variance));
+    }
+  }
+  const upper = sma.map((m, i) => m !== null ? m + 2 * stdDev[i] : null);
+  const lower = sma.map((m, i) => m !== null ? m - 2 * stdDev[i] : null);
+  return { upper, lower, middle: sma };
+}
+function playSignalSound() {
+  const audio = new Audio("https://actions.google.com/sounds/v1/cartoon/clang_and_wobble.ogg");
+  audio.play();
+}
+function analyzeSentiment(newsText) {
+  const positiveWords = ["bull", "surge", "gain", "positive", "buy", "rise", "strong"];
+  const negativeWords = ["bear", "drop", "loss", "negative", "sell", "fall", "weak"];
+  let score = 0;
+  newsText = newsText.toLowerCase();
+  positiveWords.forEach(word => { if (newsText.includes(word)) score++; });
+  negativeWords.forEach(word => { if (newsText.includes(word)) score--; });
+  return score > 0 ? "Positive" : score < 0 ? "Negative" : "Neutral";
+}
+
+// وظيفة التحليل
+let chart;
+async function analyzeMarket() {
+  const pair = document.getElementById("pair").value;
+  const timeframe = document.getElementById("timeframe").value;
+  const resultDiv = document.getElementById("result");
+  const entryDiv = document.getElementById("entry-time");
+  try {
+    const url = `https://api.binance.com/api/v3/klines?symbol=${pair}&interval=${timeframe}&limit=100`;
+    const response = await fetch(url);
+    const data = await response.json();
+    const labels = data.map(c => new Date(c[0]).toLocaleTimeString());
+    const closes = data.map(c => parseFloat(c[4]));
+    const highs = data.map(c => parseFloat(c[2]));
+    const lows = data.map(c => parseFloat(c[3]));
+    const volumes = data.map(c => parseFloat(c[5]));
+
+    const lastClose = closes[closes.length - 1];
+    const prevClose = closes[closes.length - 2];
+    const highest = Math.max(...highs.slice(-20));
+    const lowest = Math.min(...lows.slice(-20));
+    const direction = lastClose > prevClose ? "Uptrend" : (lastClose < prevClose ? "Downtrend" : "Sideways");
+
+    // المؤشرات
+    const rsi = calculateRSI(closes);
+    const { macd, signal } = calculateMACD(closes);
+    const boll = calculateBollingerBands(closes);
+    const ma50 = calculateSMA(closes, 50);
+    const ma200 = calculateSMA(closes, 200);
+
+    // فلترة إشارة الدخول
+    let signalMatch = rsi.at(-1) > 50 && macd.at(-1) > signal.at(-1) && lastClose > ma50.at(-1);
+    let entrySignal = signalMatch ? "✅ Entry signal detected (multi-indicator confirmation)" : "⏸️ Not recommended yet.";
+    if (signalMatch) playSignalSound();
+
+    const stopLoss = direction === "Uptrend" ? lowest : highest;
+    const takeProfit = direction === "Uptrend" ? lastClose * 1.03 : lastClose * 0.97;
+    const entryTime = new Date().toLocaleTimeString();
+
+    if (document.getElementById('multi-frame-toggle')?.checked) await multiTimeframeAnalysis(pair);
+    resultDiv.innerHTML = `
+      <p><strong>Pair:</strong> ${pair}</p>
+      <p><strong>Timeframe:</strong> ${timeframe}</p>
+      <p><strong>Trend:</strong> ${direction}</p>
+      <p><strong>Signal:</strong> ${entrySignal}</p>
+      <p><strong>RSI:</strong> ${rsi.at(-1).toFixed(2)}</p>
+      <p><strong>MACD:</strong> ${macd.at(-1).toFixed(2)}</p>
+      <p><strong>Volume:</strong> ${volumes.at(-1).toFixed(2)}</p>
+      <p><strong>Take Profit:</strong> ${takeProfit.toFixed(2)}</p>
+      <p><strong>Stop Loss:</strong> ${stopLoss.toFixed(2)}</p>
+    `;
+    entryDiv.innerHTML = signalMatch ? `<p style='color:#0f0;'>🚀 Entry Time: ${entryTime}</p>` : "";
+
+    if (chart) chart.destroy();
+    const ctx = document.getElementById('chart').getContext('2d');
+    chart = new Chart(ctx, {
+      type: 'line',
+      data: {
+        labels: labels,
+        datasets: [
+          {
+            label: `${pair} Closing Prices`,
+            data: closes,
+            borderColor: '#00bcd4',
+            backgroundColor: 'rgba(0, 188, 212, 0.2)',
+            fill: true,
+            tension: 0.1
+          }
+        ]
+      },
+      options: {
+        responsive: true,
+        scales: {
+          x: { display: true },
+          y: { display: true }
+        }
+      }
+    });
+  } catch (error) {
+    resultDiv.innerHTML = "<p style='color:red;'>⚠️ Failed to fetch data from Binance API.<br>Make sure you are running this file on a live server (e.g., Replit, Netlify, or localhost) and not directly from your PC file system.</p>";
+  }
+}
+
+// تحميل الأزواج عند البداية
+loadPairs();
+
+function logAnalysis(pair, timeframe, direction, signal, result) {
+  const table = document.querySelector("#logs-table tbody");
+  const row = document.createElement("tr");
+  row.innerHTML = `
+    <td>${pair}</td>
+    <td>${timeframe}</td>
+    <td>${new Date().toLocaleString()}</td>
+    <td>${direction}</td>
+    <td>${signal}</td>
+    <td>${result}</td>
+  `;
+  table.appendChild(row);
+}
+
+
+// 🟡 إشارات الشموع اليابانية
+function detectCandlestickPatterns(closes, opens, highs, lows) {
+  let patterns = [];
+  const len = closes.length;
+  if (len < 2) return patterns;
+  const lastClose = closes[len - 1];
+  const lastOpen = opens[len - 1];
+  const lastHigh = highs[len - 1];
+  const lastLow = lows[len - 1];
+  const body = Math.abs(lastClose - lastOpen);
+  const candleSize = lastHigh - lastLow;
+  const upperWick = lastHigh - Math.max(lastClose, lastOpen);
+  const lowerWick = Math.min(lastClose, lastOpen) - lastLow;
+
+  if (body <= candleSize * 0.3 && lowerWick > body * 2) patterns.push("Hammer");
+  if (body <= candleSize * 0.3 && upperWick > body * 2) patterns.push("Shooting Star");
+  if (closes[len - 2] < opens[len - 2] && closes[len - 1] > opens[len - 1] && closes[len - 1] > opens[len - 2])
+    patterns.push("Bullish Engulfing");
+  if (closes[len - 2] > opens[len - 2] && closes[len - 1] < opens[len - 1] && closes[len - 1] < opens[len - 2])
+    patterns.push("Bearish Engulfing");
+
+  return patterns;
+}
+
+// 🟣 تحليل متعدد الفريمات الزمنية
+async function multiTimeframeAnalysis(pair) {
+  const timeframes = ["15m", "1h", "4h", "1d"];
+  let summary = [];
+  for (let tf of timeframes) {
+    const url = `https://api.binance.com/api/v3/klines?symbol=${pair}&interval=${tf}&limit=100`;
+    const response = await fetch(url);
+    const data = await response.json();
+    const closes = data.map(c => parseFloat(c[4]));
+    const highs = data.map(c => parseFloat(c[2]));
+    const lows = data.map(c => parseFloat(c[3]));
+    const opens = data.map(c => parseFloat(c[1]));
+    const direction = closes.at(-1) > closes.at(-2) ? "📈 Up" : closes.at(-1) < closes.at(-2) ? "📉 Down" : "➡️ Sideways";
+    const rsi = calculateRSI(closes).at(-1);
+    const macdData = calculateMACD(closes);
+    const macdSignal = macdData.macd.at(-1) > macdData.signal.at(-1) ? "✅ MACD Bullish" : "❌ MACD Bearish";
+    const candlePatterns = detectCandlestickPatterns(closes, opens, highs, lows).join(", ") || "No pattern";
+    summary.push(`<strong>${tf}</strong>: ${direction}, RSI: ${rsi.toFixed(1)}, ${macdSignal}, Candle: ${candlePatterns}`);
+  }
+  document.getElementById("result").innerHTML += `<hr><p><strong>🔁 Multi-Timeframe Analysis:</strong><br>${summary.join("<br>")}</p>`;
+}
+
+</script>
+
+</body>
+</html>
